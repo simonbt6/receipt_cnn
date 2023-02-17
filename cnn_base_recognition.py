@@ -4,12 +4,13 @@ import torch.nn.functional as func
 
 train_batch_number = 1
 validate_batch_number = 1
-batch_count = 0
+train_batch_count = 0
+validate_batch_count = 0
 
 class BaseImageRecognition(nn.Module):
     def training_step(self, batch):
         global train_batch_number
-        print("Training step %i/%i" % (train_batch_number, batch_count))
+        print("Training step %i/%i" % (train_batch_number, train_batch_count))
         train_batch_number += 1
         images, labels = batch
         out = self(images)
@@ -18,7 +19,7 @@ class BaseImageRecognition(nn.Module):
 
     def validation_step(self, batch):
         global validate_batch_number
-        print("Validate step %i/%i" % (validate_batch_number, batch_count))
+        print("Validate step %i/%i" % (validate_batch_number, validate_batch_count))
         validate_batch_number += 1
         images, labels = batch
         out = self(images)
@@ -32,13 +33,15 @@ class BaseImageRecognition(nn.Module):
         epoch_loss = torch.stack(batch_losses).mean()
         batch_accs = [x['val_acc'] for x in outputs]
         epoch_acc = torch.stack(batch_accs).mean()
-        print("val_loss", epoch_loss.item())
-        print("val_acc", epoch_acc.item())
         return {'val_loss': epoch_loss.item(), 'val_acc': epoch_acc.item()}
 
     def epoch_end(self, epoch, result):
         print("Epoch [{}], train_loss: {:.4f}, val_loss: {:.4f}, val_acc: {:.4f}".format(
             epoch, result['train_loss'], result['val_loss'], result['val_acc']))
+        
+    def save(self, filepath):
+        torch.save(self.state_dict(), filepath)
+
 
 
 def accuracy(outputs, labels):
@@ -56,12 +59,16 @@ def fit(epochs: int, lr: float, model: BaseImageRecognition, train_loader, val_l
     optimizer = opt_func(model.parameters(), lr)
 
     for epoch in range(epochs):
+        global train_batch_number
+        train_batch_number = 1
+        global validate_batch_number
+        validate_batch_number = 1
+
         model.train()
         train_losses = []
 
-        global batch_count
-        batch_count = len(train_loader)
-
+        global train_batch_count
+        train_batch_count = len(train_loader)
         for batch in train_loader:
             loss = model.training_step(batch)
             train_losses.append(loss)
@@ -69,6 +76,8 @@ def fit(epochs: int, lr: float, model: BaseImageRecognition, train_loader, val_l
             optimizer.step()
             optimizer.zero_grad()
 
+        global validate_batch_count
+        validate_batch_count = len(val_loader)
         result = evaluate(model, val_loader)
         result['train_loss'] = torch.stack(train_losses).mean().item()
         model.epoch_end(epoch, result)
